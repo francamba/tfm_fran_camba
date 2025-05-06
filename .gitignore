@@ -1,0 +1,31 @@
+# Entorno virtual
+.venv/
+
+# Archivos de Python generados
+*.pyc
+__pycache__/
+*.egg-info/
+build/
+dist/
+
+# Archivos temporales
+*.tmp
+*.swp
+._*
+.DS_Store
+Thumbs.db
+
+# Caché de Streamlit
+.streamlit/cache/
+
+# Archivos de configuración local (ejemplo)
+config.local.toml
+.env
+
+# Secretos y claves
+secrets/
+*.json # Si tienes archivos JSON de claves directamente en la raíz (menos recomendado)
+
+# IDE específicos (opcional)
+.vscode/
+.idea/
