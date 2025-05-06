@@ -1,9 +1,6 @@
 import streamlit as st
-from common.menu import crear_menu
 
 st.set_page_config(page_title = "Dashboard Análisis PPT", page_icon="🏀", layout = "wide")
-
-crear_menu()
 
 st.title("Dashboard Análisis PPT")
 st.write(""" 
