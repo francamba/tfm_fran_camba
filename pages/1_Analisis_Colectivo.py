@@ -1,19 +1,30 @@
 import streamlit as st
-from models.google_drive_manager import cargar_datos_desde_drive
-from common.sidebar_utils import crear_selector_colectivo
+from models.google_drive_manager import cargar_dataframe_desde_sheets
 
-st.set_page_config(page_title = "Contexto", page_icon = "📊", layout = "wide")
+if st.session_state.get("password_correct"):
+    def mostrar_pagina():
+        st.title("Análisis Colectivo")
 
-st.title("Análisis Colectivo")
+        # Cargar los datos desde Google Drive (usando la función cacheada)
+        df = cargar_dataframe_desde_sheets()
 
-# Menú lateral (los nombres de los archivos en 'pages/' se usan para el menú automático)
-st.sidebar.header("Opciones de Análisis")
-selector = crear_selector_colectivo() # Función en common/sidebar_utils.py
+        if df is not None and not df.empty:
+            st.subheader("Selecciona los Campos a Visualizar")
+            all_columns = df.columns.tolist()
+            campos_seleccionados = st.multiselect("Campos a mostrar:", all_columns)
 
-# Lógica para cargar y mostrar datos basados en el selector
-datos = cargar_datos_desde_drive(nombre_archivo="tu_archivo.csv") # Función en models/google_drive_manager.py
-if datos is not None:
-    st.dataframe(datos)
-    # ... más análisis y visualizaciones ...
+            if campos_seleccionados:
+                st.subheader("Tabla de Datos Seleccionados")
+                df_seleccionado = df[campos_seleccionados]
+                st.dataframe(df_seleccionado)
+            else:
+                st.info("Selecciona al menos un campo para visualizar la tabla.")
+
+        elif df is not None:
+            st.warning("No hay datos disponibles para mostrar.")
+        else:
+            st.error("Error al cargar los datos del archivo de Google Drive.")
+
+    mostrar_pagina()
 else:
-    st.error("No se pudieron cargar los datos del archivo.")
+    st.warning("Por favor, inicia sesión en la página principal para acceder a esta sección.")

@@ -4,9 +4,10 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import datetime
 import pytz
+import os
 
 # --- Configuración de Google Sheets API ---
-CREDENCIALES_ARCHIVO = 'secrets\tarea-m8-a9dc8cda1dbd.json'
+CREDENCIALES_ARCHIVO = os.path.join('secrets', 'tarea-m8-a9dc8cda1dbd.json')
 SPREADSHEET_ID = '1-LN0L6DQmVkZuhNdQuPyfcVux7RRGiajCR9tgvOdhoM'
 RANGE_NAME = 'Datos Procesados Colectivo'
 
@@ -19,12 +20,12 @@ MINUTO_CACHEO = 0
 ZONA_HORARIA = 'Europe/Madrid'
 
 def es_momento_de_cacheo():
-    """Verifica si es el día y la hora especificados para el caché."""
+    """Verifica si es el día y la hora especificados para el caché (hora local España)."""
     zona_horaria = pytz.timezone(ZONA_HORARIA)
-    ahora = datetime.datetime.now(zona_horaria)
-    dia_actual = ahora.strftime("%A")
+    ahora_local = datetime.datetime.now(zona_horaria)
+    dia_actual = ahora_local.strftime("%A")
 
-    return dia_actual == DIA_CACHEO and ahora.hour == HORA_CACHEO and ahora.minute >= MINUTO_CACHEO and ahora.minute < (MINUTO_CACHEO + 1)
+    return dia_actual == DIA_CACHEO and ahora_local.hour == HORA_CACHEO_LOCAL and ahora_local.minute >= MINUTO_CACHEO and ahora_local.minute < (MINUTO_CACHEO + 1)
 
 @st.cache_data(show_spinner="Cargando datos de Google Sheets...")
 def cargar_dataframe_desde_sheets():
