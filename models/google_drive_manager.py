@@ -6,13 +6,13 @@ import datetime
 import pytz
 
 # --- Configuración de Google Sheets API ---
-CREDENCIALES_ARCHIVO = 'path/to/your/credentials.json'
-SPREADSHEET_ID = 'your_spreadsheet_id'
-RANGE_NAME = 'Sheet1'
+CREDENCIALES_ARCHIVO = 'secrets\tarea-m8-a9dc8cda1dbd.json'
+SPREADSHEET_ID = '1-LN0L6DQmVkZuhNdQuPyfcVux7RRGiajCR9tgvOdhoM'
+RANGE_NAME = 'Datos Procesados Colectivo'
 
 # --- Configuración del horario de caché ---
-DIA_CACHEO = 'Martes'
-HORA_CACHEO = 10
+DIA_CACHEO = 'Lunes'
+HORA_CACHEO = 5
 MINUTO_CACHEO = 0
 
 # --- Zona horaria para la comparación (ajusta a tu necesidad) ---
