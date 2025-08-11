@@ -1,0 +1,7 @@
+streamlit
+pandas
+requests
+gspread
+gspread-dataframe
+oauth2client
+fpdf2

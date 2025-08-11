@@ -18,14 +18,13 @@ Thumbs.db
 # Caché de Streamlit
 .streamlit/cache/
 
-# Archivos de configuración local (ejemplo)
+# Archivos de configuración local
 config.local.toml
 .env
 
 # Secretos y claves
-secrets/
-*.json # Si tienes archivos JSON de claves directamente en la raíz (menos recomendado)
+.streamlit/secrets.toml
 
-# IDE específicos (opcional)
+# IDE específicos
 .vscode/
 .idea/

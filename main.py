@@ -1,31 +1,32 @@
 import streamlit as st
-from modules import utils
+from modules import utils, auth
 
-def main():
-    """
-    Función principal que construye la página de inicio de la aplicación.
-    """
-    # Configuración inicial de la página
-    st.set_page_config(
-        page_title="Básquet Girona",
-        page_icon="🏀",
-        layout="wide"
-    )
+def main_page():
+    """Contenido de la página principal una vez que el usuario ha iniciado sesión."""
+    # Proteger la página (cualquier usuario logueado puede verla)
+    auth.protect_page()
 
-    # Llama a la función para crear el encabezado común
+    # El resto del contenido de la página
     utils.create_header()
-
-    # Contenido específico de la página de inicio
-    st.title("Panel de Análisis de Rendimiento de Bàsquet Girona T25/26")
+    st.title("Bienvenido a la Plataforma de Análisis")
     st.write(
         "Esta herramienta interactiva está diseñada para proporcionar un análisis detallado "
         "del rendimiento deportivo, tanto a nivel colectivo como individual."
     )
-
     st.info(
         "👈 **Selecciona una de las páginas en el menú lateral** para comenzar tu análisis.",
         icon="ℹ️"
     )
 
-if __name__ == "__main__":
-    main()
+# --- Lógica Principal ---
+st.set_page_config(
+    page_title="Inicio - Análisis de Rendimiento",
+    page_icon="🏀",
+    layout="wide"
+)
+
+# Comprobar si el usuario ha iniciado sesión
+if 'logged_in' not in st.session_state or not st.session_state.logged_in:
+    auth.login_form()
+else:
+    main_page()
