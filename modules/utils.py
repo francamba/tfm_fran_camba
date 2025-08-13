@@ -68,7 +68,6 @@ def create_pdf_report(df_filtrado, metricas, equipo, page_title):
             pdf.cell(col_widths.get(col, 30), 8, str(row[col]), 1)
         pdf.ln()
 
-    # CORRECCIÓN: Convertimos explícitamente el bytearray a bytes
     return bytes(pdf.output(dest='S'))
 
 

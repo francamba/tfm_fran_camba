@@ -55,8 +55,6 @@ if st.button("Buscar y Actualizar Partidos Nuevos", type="primary", use_containe
                         
                         all_new_boxscores = [utils.box_score(row.id_partido, headers) for row in df_nuevos.itertuples()]
                         
-                        # --- CORRECCIÓN ---
-                        # Filtramos explícitamente los DataFrames que no sean None y no estén vacíos.
                         valid_boxscores = [df for df in all_new_boxscores if df is not None and not df.empty]
                         
                         if valid_boxscores:

@@ -23,11 +23,8 @@ def main():
     equipos = sorted(df['equipo'].unique())
     rivales = sorted(df['rival'].unique())
     
-    # --- CORRECCIÓN ---
-    # Eliminamos los valores NaN de la columna de jornadas antes de crear la lista
     jornadas = sorted(df['matchweek_number'].dropna().unique())
 
-    # Comprobamos si, tras limpiar, la lista de jornadas está vacía
     if not jornadas:
         st.warning("No hay datos de jornadas disponibles para filtrar. Revisa el archivo 'listado_partido'.")
         st.stop()
