@@ -1,6 +1,15 @@
 import streamlit as st
 import pandas as pd
-from modules import utils, auth
+from modules import auth
+import sys
+import os
+
+# Añade el directorio raíz del proyecto al 'path' de Python
+# Esto permite que el script encuentre el archivo utils.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# -----------------------------------------------------------
+
+import utils
 
 def main():
     auth.protect_page()
@@ -17,33 +26,7 @@ def main():
         st.stop()
 
     # --- PANELES DE FILTROS EN LA BARRA LATERAL ---
-    st.sidebar.header("Filtros de Partidos")
-
-    # Listas para los filtros
-    equipos = sorted(df['equipo'].unique())
-    rivales = sorted(df['rival'].unique())
-    
-    jornadas = sorted(df['matchweek_number'].dropna().unique())
-
-    if not jornadas:
-        st.warning("No hay datos de jornadas disponibles para filtrar. Revisa el archivo 'listado_partido'.")
-        st.stop()
-
-    # Filtro de equipo
-    equipo_seleccionado = st.sidebar.selectbox("Selecciona un equipo", equipos)
-
-    # Filtro de rival
-    rival_seleccionado = st.sidebar.multiselect("Selecciona rival(es)", rivales, default=rivales)
-
-    # Filtro de pista
-    pista_seleccionada = st.sidebar.selectbox("Selecciona la pista", ["Todos", "CASA", "FUERA"])
-
-    # Filtro de jornada
-    jornada_seleccionada = st.sidebar.select_slider(
-        "Selecciona un rango de jornadas",
-        options=jornadas,
-        value=(jornadas[0], jornadas[-1])
-    )
+    equipo_seleccionado, rival_seleccionado, pista_seleccionada, jornada_seleccionada = utils.display_sidebar_filters(df)
 
     # --- APLICACIÓN DE FILTROS ---
     df_filtrado = df[

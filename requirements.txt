@@ -6,3 +6,4 @@ gspread-dataframe
 oauth2client
 fpdf2
 numpy
+pyarrow

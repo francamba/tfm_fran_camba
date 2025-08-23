@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import time
-import utils
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from modules import utils
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Actualizar Datos", page_icon="🔄", layout="wide")
@@ -74,51 +79,63 @@ with st.container(border=True):
 
 st.divider()
 
+
+# En pages/3_Actualizar_Datos.py
+
 # --- SECCIÓN PARA ACTUALIZAR PLAY BY PLAY ---
 with st.container(border=True):
     st.subheader("🏀 Actualizar Datos de Play-by-Play")
-    st.warning("Este proceso puede tardar varios minutos si hay muchos partidos nuevos, ya que descarga y procesa cada jugada individualmente.")
+    st.info("Los datos se guardarán localmente en un archivo 'play_by_play.parquet' para mayor velocidad y sin límites de tamaño.")
 
     if st.button("🚀 Iniciar Actualización de Play-by-Play"):
-        with st.spinner("Buscando nuevos partidos para Play-by-Play... Esto puede tardar."):
-            # 1. Cargar datos existentes de Play-by-Play
-            df_pbp_existente = utils.load_gdrive_sheet("play_by_play", "play_by_play_raw")
+        
+        pbp_filepath = "data/play_by_play.parquet"
+
+        with st.spinner("Actualizando Play-by-Play..."):
+            # 1. Cargar datos locales existentes
+            df_pbp_existente = utils.load_df_from_parquet(pbp_filepath)
             ids_existentes_pbp = []
-            if df_pbp_existente is not None and not df_pbp_existente.empty:
+            if not df_pbp_existente.empty:
                 ids_existentes_pbp = pd.to_numeric(df_pbp_existente['id_partido'], errors='coerce').unique()
 
             # 2. Obtener listado completo de partidos desde la API
             df_partidos = utils.listado_partidos(headers)
-            
             if df_partidos is None:
-                st.error("Fallo al obtener la lista de partidos de la API. No se puede continuar.")
-            else:
-                ids_totales = pd.to_numeric(df_partidos['id_partido'], errors='coerce').unique()
+                st.error("Fallo al obtener la lista de partidos de la API.")
+                st.stop()
+            
+            ids_totales = pd.to_numeric(df_partidos['id_partido'], errors='coerce').unique()
 
-                # 3. Determinar qué IDs son nuevos
-                ids_nuevos = [pid for pid in ids_totales if pid not in ids_existentes_pbp]
+            # 3. Determinar qué IDs son nuevos
+            ids_nuevos = [pid for pid in ids_totales if pid not in ids_existentes_pbp]
+            
+            if not ids_nuevos:
+                st.success("✅ ¡La base de datos de Play-by-Play ya está completamente actualizada!")
+                st.stop()
+
+            st.write(f"Se encontraron {len(ids_nuevos)} partidos nuevos para añadir al Play-by-Play.")
+            
+            # 4. Procesar cada partido nuevo (ESTE ES EL BUCLE QUE FALTABA)
+            nuevos_pbp = []
+            progress_bar = st.progress(0, text="Descargando datos de Play-by-Play...")
+            for i, id_partido in enumerate(ids_nuevos):
+                df_pbp = utils.play_by_play(id_partido, headers)
+                if df_pbp is not None and not df_pbp.empty:
+                    nuevos_pbp.append(df_pbp)
+                time.sleep(1)
+                progress_bar.progress((i + 1) / len(ids_nuevos), text=f"Descargando Play-by-Play del partido {id_partido}...")
+
+            # 5. Combinar datos y guardar localmente
+            if nuevos_pbp:
+                df_nuevos_pbp = pd.concat(nuevos_pbp, ignore_index=True)
                 
-                if not ids_nuevos:
-                    st.success("✅ ¡La base de datos de Play-by-Play ya está completamente actualizada!")
-                else:
-                    st.write(f"Se encontraron {len(ids_nuevos)} partidos nuevos para añadir al Play-by-Play.")
-                    
-                    # 4. Procesar cada partido nuevo
-                    nuevos_pbp = []
-                    progress_bar = st.progress(0, text="Descargando datos de Play-by-Play...")
-                    for i, id_partido in enumerate(ids_nuevos):
-                        df_pbp = utils.play_by_play(id_partido, headers)
-                        if df_pbp is not None and not df_pbp.empty:
-                            nuevos_pbp.append(df_pbp)
-                        time.sleep(1)  # Pequeña pausa para no saturar la API
-                        progress_bar.progress((i + 1) / len(ids_nuevos), text=f"Descargando Play-by-Play del partido {id_partido}...")
+                # Combinar el DataFrame existente con el nuevo
+                df_completo = pd.concat([df_pbp_existente, df_nuevos_pbp], ignore_index=True).reset_index(drop=True)
 
-                    # 5. Añadir los nuevos datos a Google Sheets
-                    if nuevos_pbp:
-                        df_nuevos_pbp = pd.concat(nuevos_pbp, ignore_index=True)
-                        if utils.append_to_gsheet("play_by_play", "play_by_play_raw", df_nuevos_pbp):
-                            st.success(f"🎉 ¡Se han añadido los datos de {len(ids_nuevos)} nuevos partidos al Play-by-Play con éxito!")
-                        else:
-                            st.error("❌ Hubo un error al escribir los nuevos datos en la hoja de Play-by-Play.")
-                    else:
-                        st.warning("⚠️ No se pudieron obtener datos válidos para los nuevos partidos encontrados.")
+                # Guardar el archivo completo
+                if utils.save_df_to_parquet(df_completo, pbp_filepath):
+                    st.success(f"🎉 ¡ÉXITO! Se han guardado los datos en 'data/play_by_play.parquet'.")
+                else:
+                    st.error("❌ ¡FALLO! Hubo un error al guardar el archivo Parquet local.")
+            else:
+                st.warning("⚠️ No se generaron datos válidos para los nuevos partidos. No hay nada que escribir.")

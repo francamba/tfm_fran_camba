@@ -3,6 +3,7 @@ import pandas as pd
 import requests as rq
 import gspread
 import time
+import os
 from gspread_dataframe import get_as_dataframe
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
@@ -28,6 +29,33 @@ def create_header():
         *Utiliza el menú de la izquierda para navegar por las diferentes secciones de análisis.*
         """)
     st.divider()
+
+def display_sidebar_filters(df):
+    """Muestra los filtros comunes en la sidebar y devuelve las selecciones del usuario."""
+    
+    st.sidebar.header("Filtros de Partidos")
+
+    with st.sidebar.expander("Filtros de Partidos", expanded=True):
+        # Listas para los filtros
+        equipos = sorted(df['equipo'].unique())
+        rivales = sorted(df['rival'].unique())
+        jornadas = sorted(df['matchweek_number'].dropna().unique())
+
+        if not jornadas:
+            st.warning("No hay datos de jornadas disponibles para filtrar.")
+            st.stop()
+
+        # Creación de los widgets de Streamlit
+        equipo_seleccionado = st.selectbox("Selecciona un equipo", equipos)
+        rival_seleccionado = st.multiselect("Selecciona rival(es)", rivales, default=rivales)
+        pista_seleccionada = st.selectbox("Selecciona la pista", ["Todos", "CASA", "FUERA"])
+        jornada_seleccionada = st.select_slider(
+            "Selecciona un rango de jornadas",
+            options=jornadas,
+            value=(jornadas[0], jornadas[-1])
+        )
+
+    return equipo_seleccionado, rival_seleccionado, pista_seleccionada, jornada_seleccionada
 
 def create_pdf_report(df_filtrado, metricas, equipo, page_title):
     """Genera un reporte en PDF con las métricas y los datos filtrados."""
@@ -128,7 +156,8 @@ def append_to_gsheet(sheet_name, worksheet_name, df_to_append):
 @st.cache_data
 def load_and_prepare_data():
     """
-    Carga los datos de partidos y box score, los une y calcula las métricas base.
+    Carga los datos de partidos y box score, los une y calcula un conjunto
+    completo de métricas de rendimiento por partido.
     """
     df_partidos = load_gdrive_sheet("listado_partido", "listado_general")
     df_boxscore = load_gdrive_sheet("box_score", "boxscores_raw")
@@ -137,19 +166,58 @@ def load_and_prepare_data():
         st.error("No se pudieron cargar los datos base. Revisa la conexión y los nombres de los archivos.")
         return pd.DataFrame()
 
+    # --- LIMPIEZA Y CONVERSIÓN DE TIPOS ---
     for col in ['id_partido', 'period', 'matchweek_number']:
         df_partidos[col] = pd.to_numeric(df_partidos[col], errors='coerce')
     
-    numeric_boxscore_cols = ['puntos', 'T2I', 'T3I', 'TO', 'TLI', 'RebOf', 'T2C', 'T3C']
+    # Lista de todas las columnas numéricas esperadas en el boxscore
+    numeric_boxscore_cols = [
+        'puntos', 'T2I', 'T3I', 'TO', 'TLI', 'RebOf', 'T2C', 'T3C', 'TLC', 'RebDef',
+        'puntos_riv', 'T2I_riv', 'T3I_riv', 'TO_riv', 'TLI_riv', 'RebOf_riv', 'T2C_riv', 
+        'T3C_riv', 'TLC_riv', 'RebDef_riv'
+    ]
     for col in numeric_boxscore_cols:
-         df_boxscore[col] = pd.to_numeric(df_boxscore[col], errors='coerce')
+         # Asegurarse de que la columna existe antes de intentar convertirla
+        if col in df_boxscore.columns:
+            df_boxscore[col] = pd.to_numeric(df_boxscore[col], errors='coerce').fillna(0)
 
     df_boxscore['id_partido'] = pd.to_numeric(df_boxscore['id_partido'], errors='coerce')
     
+    # --- UNIÓN DE DATAFRAMES ---
     df_merged = pd.merge(df_boxscore, df_partidos[['id_partido', 'period', 'matchweek_number']], on='id_partido', how='left')
     
-    df_merged['posesiones'] = (df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI']) - df_merged['RebOf'])
+    # --- CÁLCULO DE MÉTRICAS ADICIONALES ---
+    
+    # Victoria (SI/NO)
+    df_merged['victoria'] = np.where(df_merged['puntos'] > df_merged['puntos_riv'], 'SI', 'NO')
+    
+    # Métricas de Posesión
+    df_merged['posesiones'] = df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI']) - df_merged['RebOf']
     df_merged['tiempo_partido'] = df_merged['period'].apply(lambda p: 40 + (p - 4) * 5 if p > 4 else 40)
+    
+    # Eficiencia Ofensiva
+    df_merged['POSS/40 Min'] = np.where(df_merged['tiempo_partido'] > 0, (df_merged['posesiones'] / df_merged['tiempo_partido']) * 40, 0)
+    df_merged['Ptos/POSS'] = np.where(df_merged['posesiones'] > 0, df_merged['puntos'] / df_merged['posesiones'], 0)
+
+    # Puntos Por Tiro (PPT)
+    df_merged['PPT2'] = np.where(df_merged['T2I'] > 0, (2 * df_merged['T2C']) / df_merged['T2I'], 0)
+    df_merged['PPT3'] = np.where(df_merged['T3I'] > 0, (3 * df_merged['T3C']) / df_merged['T3I'], 0)
+    tiros_totales = df_merged['T2I'] + df_merged['T3I']
+    df_merged['PPT'] = np.where(tiros_totales > 0, ((2 * df_merged['T2C']) + (3 * df_merged['T3C'])) / tiros_totales, 0)
+
+    # Porcentajes de Rebote
+    df_merged['%RebOf'] = np.where((df_merged['RebOf'] + df_merged['RebDef_riv']) > 0, df_merged['RebOf'] / (df_merged['RebOf'] + df_merged['RebDef_riv']), 0)
+    df_merged['%RebDef'] = np.where((df_merged['RebDef'] + df_merged['RebOf_riv']) > 0, df_merged['RebDef'] / (df_merged['RebDef'] + df_merged['RebOf_riv']), 0)
+    rebotes_totales_partido = df_merged['RebOf'] + df_merged['RebDef'] + df_merged['RebOf_riv'] + df_merged['RebDef_riv']
+    df_merged['%Reb'] = np.where(rebotes_totales_partido > 0, (df_merged['RebOf'] + df_merged['RebDef']) / rebotes_totales_partido, 0)
+
+    # Porcentaje de Pérdidas
+    denominador_to = df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI'])
+    df_merged['%TO'] = np.where(denominador_to > 0, df_merged['TO'] / denominador_to, 0)
+    
+    # Porcentaje de Consumo de Tiros
+    df_merged['%Consumo T2'] = np.where(tiros_totales > 0, df_merged['T2I'] / tiros_totales, 0)
+    df_merged['%Consumo T3'] = np.where(tiros_totales > 0, df_merged['T3I'] / tiros_totales, 0)
     
     return df_merged
 
@@ -246,9 +314,6 @@ def box_score(id_partido, headers):
 import numpy as np
 from pandas import json_normalize
 
-# =============================================================================
-# ... (aquí irían las otras funciones de tu archivo utils.py)
-# =============================================================================
 
 def _check_and_reorder_play_by_play(df):
     """
@@ -418,4 +483,29 @@ def play_by_play(id_partido, headers):
 
     except Exception as e:
         st.error(f"Error al obtener o procesar el PlayByPlay del partido {id_partido}: {e}")
+        return pd.DataFrame()
+    
+
+def save_df_to_parquet(df, file_path):
+    """Guarda un DataFrame en un archivo Parquet."""
+    try:
+        # Asegurarse de que el directorio existe
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        df.to_parquet(file_path, index=False)
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar el archivo Parquet en '{file_path}': {e}")
+        return False
+
+@st.cache_data
+def load_df_from_parquet(file_path):
+    """Carga un DataFrame desde un archivo Parquet."""
+    try:
+        if os.path.exists(file_path):
+            return pd.read_parquet(file_path)
+        else:
+            # Si el archivo no existe, devuelve un DataFrame vacío con las columnas esperadas
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error al cargar el archivo Parquet desde '{file_path}': {e}")
         return pd.DataFrame()
