@@ -30,13 +30,30 @@ def create_header():
         """)
     st.divider()
 
+# En modules/utils.py
+
+# En modules/utils.py
+
+# En modules/utils.py
+
 def display_sidebar_filters(df):
-    """Muestra los filtros comunes en la sidebar y devuelve las selecciones del usuario."""
+    """
+    Muestra filtros expandibles y un botón de reseteo en la sidebar.
+    Usa st.session_state para gestionar los valores de los filtros.
+    """
     
     st.sidebar.header("Filtros de Partidos")
 
+    if st.sidebar.button("Resetear Filtros", use_container_width=True):
+        filter_keys = ['equipo_seleccionado', 'rival_seleccionado', 'pista_seleccionada', 
+                       'victoria_seleccionada', 'jornada_seleccionada', 'ppt2_range', 
+                       'ppt3_range', 'rebof_range', 'rebdef_range', 'to_range']
+        for key in filter_keys:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
     with st.sidebar.expander("Filtros de Partidos", expanded=True):
-        # Listas para los filtros
         equipos = sorted(df['equipo'].unique())
         rivales = sorted(df['rival'].unique())
         jornadas = sorted(df['matchweek_number'].dropna().unique())
@@ -45,17 +62,45 @@ def display_sidebar_filters(df):
             st.warning("No hay datos de jornadas disponibles para filtrar.")
             st.stop()
 
-        # Creación de los widgets de Streamlit
-        equipo_seleccionado = st.selectbox("Selecciona un equipo", equipos)
-        rival_seleccionado = st.multiselect("Selecciona rival(es)", rivales, default=rivales)
-        pista_seleccionada = st.selectbox("Selecciona la pista", ["Todos", "CASA", "FUERA"])
-        jornada_seleccionada = st.select_slider(
+        st.selectbox("Selecciona un equipo", equipos, key='equipo_seleccionado')
+        st.multiselect("Selecciona rival(es)", rivales, default=rivales, key='rival_seleccionado')
+        st.selectbox("Selecciona la pista", ["Todos", "CASA", "FUERA"], key='pista_seleccionada')
+        st.selectbox("Filtrar por resultado", ["Todos", "SI", "NO"], key='victoria_seleccionada')
+        st.select_slider(
             "Selecciona un rango de jornadas",
             options=jornadas,
-            value=(jornadas[0], jornadas[-1])
+            value=(jornadas[0], jornadas[-1]),
+            key='jornada_seleccionada'
         )
 
-    return equipo_seleccionado, rival_seleccionado, pista_seleccionada, jornada_seleccionada
+    with st.sidebar.expander("Filtros por Métricas", expanded=False):
+        st.markdown("Filtra los partidos según el rendimiento en ellos.")
+
+        def create_metric_slider(metric_name, label, format_str="%.2f"):
+            min_val = df[metric_name].min()
+            max_val = df[metric_name].max()
+            
+            # --- LÍNEA CORREGIDA ---
+            # Limpiamos el nombre de la métrica para crear una clave válida (sin '%' o '/')
+            sanitized_key = metric_name.lower().replace('/', '').replace('%', '') + '_range'
+
+            if min_val < max_val:
+                st.slider(
+                    label,
+                    min_value=float(min_val),
+                    max_value=float(max_val),
+                    value=(float(min_val), float(max_val)),
+                    format=format_str,
+                    key=sanitized_key # Usamos la clave limpia
+                )
+            else:
+                st.session_state[sanitized_key] = (float(min_val), float(max_val))
+
+        create_metric_slider('PPT2', "Rango de PPT2", "%.3f")
+        create_metric_slider('PPT3', "Rango de PPT3", "%.3f")
+        create_metric_slider('%RebOf', "Rango de % Rebote Ofensivo")
+        create_metric_slider('%RebDef', "Rango de % Rebote Defensivo")
+        create_metric_slider('%TO', "Rango de % Pérdidas")
 
 def create_pdf_report(df_filtrado, metricas, equipo, page_title):
     """Genera un reporte en PDF con las métricas y los datos filtrados."""

@@ -7,3 +7,5 @@ oauth2client
 fpdf2
 numpy
 pyarrow
+matplotlib
+altair
