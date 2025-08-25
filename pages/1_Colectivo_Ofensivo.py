@@ -87,17 +87,13 @@ def main():
             
             df_agregado_grafico = df_agregado.reset_index()
 
-            # --- Cálculo de promedios para las líneas
             avg_poss = df_agregado_grafico['POSS/40 Min'].mean()
             avg_ptos = df_agregado_grafico['Ptos/POSS'].mean()
 
-            # --- Cálculo de la puntuación de rendimiento para el color ---
-            # Normalizamos ambas métricas (escala 0-1) y las sumamos
-            df_agregado_grafico['score_poss'] = (df_agregado_grafico['POSS/40 Min'] - df_agregado_grafico['POSS/40 Min'].min()) / (df_agregado_grafico['POSS/40 Min'].max() - df_agregado_grafico['POSS/40 Min'].min())
-            df_agregado_grafico['score_ptos'] = (df_agregado_grafico['Ptos/POSS'] - df_agregado_grafico['Ptos/POSS'].min()) / (df_agregado_grafico['Ptos/POSS'].max() - df_agregado_grafico['Ptos/POSS'].min())
-            df_agregado_grafico['performance_score'] = df_agregado_grafico['score_poss'] + df_agregado_grafico['score_ptos']
-
-            # --- Ajuste de ejes con margen ---
+            df_agregado_grafico['score_poss'] = (df_agregado_grafico['POSS/40 Min'] - avg_poss)
+            df_agregado_grafico['score_ptos'] = (df_agregado_grafico['Ptos/POSS'] - avg_ptos)
+            df_agregado_grafico['performance_score'] = df_agregado_grafico['score_poss'] + df_agregado_grafico['score_ptos'] * 10 
+            
             x_min, x_max = df_agregado_grafico['POSS/40 Min'].min(), df_agregado_grafico['POSS/40 Min'].max()
             y_min, y_max = df_agregado_grafico['Ptos/POSS'].min(), df_agregado_grafico['Ptos/POSS'].max()
             x_margin = (x_max - x_min) * 0.10
@@ -111,29 +107,22 @@ def main():
                 color=alt.Color('performance_score:Q', scale=alt.Scale(scheme='redyellowgreen'), legend=None),
                 tooltip=['equipo', alt.Tooltip('POSS/40 Min', format='.1f'), alt.Tooltip('Ptos/POSS', format='.2f')]
             )
-
-            # Resaltar el punto del equipo seleccionado
             highlight_point = scatter_plot.transform_filter(
                 alt.datum.equipo == st.session_state.equipo_seleccionado
             ).mark_circle(size=250, stroke='black', strokeWidth=2)
+            
+            rule_h = alt.Chart(pd.DataFrame({'y': [avg_ptos]})).mark_rule(strokeDash=[5,5], color='black', size=2).encode(y='y:Q')
+            rule_v = alt.Chart(pd.DataFrame({'x': [avg_poss]})).mark_rule(strokeDash=[5,5], color='black', size=2).encode(x='x:Q')
 
-            # Líneas de promedio
-            rule_h = alt.Chart(pd.DataFrame({'y': [avg_ptos]})).mark_rule(strokeDash=[3,3], color='dimgray', size=1.5).encode(y='y:Q')
-            rule_v = alt.Chart(pd.DataFrame({'x': [avg_poss]})).mark_rule(strokeDash=[3,3], color='dimgray', size=1.5).encode(x='x:Q')
-
-            # Etiquetas para las líneas de promedio
+            # --- AJUSTES EN EL DESPLAZAMIENTO DE LAS ETIQUETAS ---
             text_h = alt.Chart(pd.DataFrame({'y': [avg_ptos], 'x': [x_max]})).mark_text(
-                align='left', baseline='middle', dx=5, text=f'{avg_ptos:.2f}'
+                align='left', baseline='middle', dx=18, dy=20, text=f'{avg_ptos:.2f}', color='black', size=14, fontWeight='bold' # Aumentado dx
             ).encode(x='x:Q', y='y:Q')
             text_v = alt.Chart(pd.DataFrame({'x': [avg_poss], 'y': [y_max]})).mark_text(
-                align='center', baseline='bottom', dy=-5, text=f'{avg_poss:.1f}'
+                align='center', baseline='bottom', dx=15, dy=15, text=f'{avg_poss:.1f}', color='black', size=14, fontWeight='bold' # Aumentado dy
             ).encode(x='x:Q', y='y:Q')
 
-            # Combinar todo y aumentar la altura
-            final_chart = (scatter_plot + highlight_point + rule_h + rule_v + text_h + text_v).interactive().properties(
-                height=500
-            )
-
+            final_chart = (scatter_plot + highlight_point + rule_h + rule_v + text_h + text_v).interactive().properties(height=500)
             st.altair_chart(final_chart, use_container_width=True, theme="streamlit")
             
             st.divider()
