@@ -4,15 +4,27 @@ import requests as rq
 import gspread
 import time
 import os
+import base64
+import numpy as np
 from gspread_dataframe import get_as_dataframe
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
-import numpy as np
 from pandas import json_normalize
 
 # =============================================================================
 # FUNCIONES DE INTERFAZ Y GOOGLE DRIVE
 # =============================================================================
+
+def image_to_data_url(filepath):
+    """Lee un archivo de imagen y lo convierte a un Data URL en base64."""
+    try:
+        with open(filepath, "rb") as f:
+            img_bytes = f.read()
+            b64_string = base64.b64encode(img_bytes).decode()
+            return f"data:image/png;base64,{b64_string}"
+    except FileNotFoundError:
+        # Devuelve None si no se encuentra el logo para un equipo
+        return None
 
 def create_header():
     """Crea un encabezado común para cada página."""
