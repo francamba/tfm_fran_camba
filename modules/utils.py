@@ -44,10 +44,6 @@ def create_header():
 
 # En modules/utils.py
 
-# En modules/utils.py
-
-# En modules/utils.py
-
 def display_sidebar_filters(df):
     """
     Muestra filtros expandibles y un botón de reseteo en la sidebar.
@@ -91,8 +87,7 @@ def display_sidebar_filters(df):
         def create_metric_slider(metric_name, label, format_str="%.2f"):
             min_val = df[metric_name].min()
             max_val = df[metric_name].max()
-            
-            # --- LÍNEA CORREGIDA ---
+
             # Limpiamos el nombre de la métrica para crear una clave válida (sin '%' o '/')
             sanitized_key = metric_name.lower().replace('/', '').replace('%', '') + '_range'
 
