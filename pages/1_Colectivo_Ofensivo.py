@@ -132,8 +132,8 @@ def main():
             st.divider()
 
             # --- 3. TARJETAS DE KPIS COMPARATIVOS ---
-            equipo_seleccionado = st.session_state.equipo_seleccionado
-            df_equipo = df_filtrado_general[df_filtrado_general['equipo'] == equipo_seleccionado]
+            equipo_seleccionado_kpi = st.session_state.equipo_seleccionado
+            df_equipo = df_filtrado_general[df_filtrado_general['equipo'] == equipo_seleccionado_kpi]
             
             if not df_equipo.empty:
                 avg_ptos_poss_equipo = df_equipo['Ptos/POSS'].mean()

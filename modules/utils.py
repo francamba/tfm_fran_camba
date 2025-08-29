@@ -215,63 +215,48 @@ def load_and_prepare_data():
     df_boxscore = load_gdrive_sheet("box_score", "boxscores_raw")
 
     if df_partidos is None or df_boxscore is None:
-        st.error("No se pudieron cargar los datos base. Revisa la conexión y los nombres de los archivos.")
         return pd.DataFrame()
 
-    # --- LIMPIEZA Y CONVERSIÓN DE TIPOS ---
     for col in ['id_partido', 'period', 'matchweek_number']:
         df_partidos[col] = pd.to_numeric(df_partidos[col], errors='coerce')
     
-    # Lista de todas las columnas numéricas esperadas en el boxscore
     numeric_boxscore_cols = [
-        'puntos', 'T2I', 'T3I', 'TO', 'TLI', 'RebOf', 'T2C', 'T3C', 'TLC', 'RebDef',
+        'puntos', 'T2I', 'T3I', 'TO', 'TLI', 'RebOf', 'T2C', 'T3C', 'TLC', 'RebDef', 'asist', 'faltas',
         'puntos_riv', 'T2I_riv', 'T3I_riv', 'TO_riv', 'TLI_riv', 'RebOf_riv', 'T2C_riv', 
         'T3C_riv', 'TLC_riv', 'RebDef_riv'
     ]
     for col in numeric_boxscore_cols:
-         # Asegurarse de que la columna existe antes de intentar convertirla
         if col in df_boxscore.columns:
             df_boxscore[col] = pd.to_numeric(df_boxscore[col], errors='coerce').fillna(0)
 
     df_boxscore['id_partido'] = pd.to_numeric(df_boxscore['id_partido'], errors='coerce')
     
-    # --- UNIÓN DE DATAFRAMES ---
     df_merged = pd.merge(df_boxscore, df_partidos[['id_partido', 'period', 'matchweek_number']], on='id_partido', how='left')
     
-    # --- CÁLCULO DE MÉTRICAS ADICIONALES ---
-    
-    # Victoria (SI/NO)
     df_merged['victoria'] = np.where(df_merged['puntos'] > df_merged['puntos_riv'], 'SI', 'NO')
-    
-    # Métricas de Posesión
     df_merged['posesiones'] = df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI']) - df_merged['RebOf']
     df_merged['tiempo_partido'] = df_merged['period'].apply(lambda p: 40 + (p - 4) * 5 if p > 4 else 40)
-    
-    # Eficiencia Ofensiva
     df_merged['POSS/40 Min'] = np.where(df_merged['tiempo_partido'] > 0, (df_merged['posesiones'] / df_merged['tiempo_partido']) * 40, 0)
     df_merged['Ptos/POSS'] = np.where(df_merged['posesiones'] > 0, df_merged['puntos'] / df_merged['posesiones'], 0)
-
-    # Puntos Por Tiro (PPT)
     df_merged['PPT2'] = np.where(df_merged['T2I'] > 0, (2 * df_merged['T2C']) / df_merged['T2I'], 0)
     df_merged['PPT3'] = np.where(df_merged['T3I'] > 0, (3 * df_merged['T3C']) / df_merged['T3I'], 0)
     tiros_totales = df_merged['T2I'] + df_merged['T3I']
     df_merged['PPT'] = np.where(tiros_totales > 0, ((2 * df_merged['T2C']) + (3 * df_merged['T3C'])) / tiros_totales, 0)
-
-    # Porcentajes de Rebote
     df_merged['%RebOf'] = np.where((df_merged['RebOf'] + df_merged['RebDef_riv']) > 0, df_merged['RebOf'] / (df_merged['RebOf'] + df_merged['RebDef_riv']), 0)
     df_merged['%RebDef'] = np.where((df_merged['RebDef'] + df_merged['RebOf_riv']) > 0, df_merged['RebDef'] / (df_merged['RebDef'] + df_merged['RebOf_riv']), 0)
-    rebotes_totales_partido = df_merged['RebOf'] + df_merged['RebDef'] + df_merged['RebOf_riv'] + df_merged['RebDef_riv']
-    df_merged['%Reb'] = np.where(rebotes_totales_partido > 0, (df_merged['RebOf'] + df_merged['RebDef']) / rebotes_totales_partido, 0)
-
-    # Porcentaje de Pérdidas
     denominador_to = df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI'])
     df_merged['%TO'] = np.where(denominador_to > 0, df_merged['TO'] / denominador_to, 0)
     
-    # Porcentaje de Consumo de Tiros
-    df_merged['%Consumo T2'] = np.where(tiros_totales > 0, df_merged['T2I'] / tiros_totales, 0)
-    df_merged['%Consumo T3'] = np.where(tiros_totales > 0, df_merged['T3I'] / tiros_totales, 0)
-    
     return df_merged
+
+@st.cache_data
+def load_pbp_data():
+    """Carga los datos de Play-by-Play desde el archivo Parquet."""
+    file_path = "data/play_by_play.parquet"
+    if os.path.exists(file_path):
+        return pd.read_parquet(file_path)
+    else:
+        return None
 
 # =============================================================================
 # FUNCIONES DE ACCESO A LA API
