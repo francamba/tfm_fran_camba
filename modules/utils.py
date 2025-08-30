@@ -10,6 +10,7 @@ from gspread_dataframe import get_as_dataframe
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
 from pandas import json_normalize
+import joblib
 
 # =============================================================================
 # FUNCIONES DE INTERFAZ Y GOOGLE DRIVE
@@ -346,7 +347,58 @@ def box_score(id_partido, headers):
     except Exception as e:
         st.error(f"Error al obtener o procesar el box score del partido {id_partido}: {e}")
         return None
+# =============================================================================
+# NUEVAS FUNCIONES PARA LOS MODELOS PREDICTIVOS
+# =============================================================================
 
+@st.cache_resource
+def load_models():
+    """
+    Carga los modelos de predicción de lanzamientos desde los archivos .joblib.
+    Se cachea para no tener que recargarlos en cada ejecución.
+    """
+    try:
+        model_2pt = joblib.load("models/mejor_modelo_tiros_2_puntos.joblib")
+        model_3pt = joblib.load("models/mejor_modelo_tiros_3_puntos.joblib")
+        return {"model_2pt": model_2pt, "model_3pt": model_3pt}
+    except FileNotFoundError:
+        st.error("No se encontraron los archivos de los modelos en la carpeta 'models/'. Asegúrate de que los archivos .joblib están en esa ubicación.")
+        return None
+
+def feature_engineering_for_prediction(df):
+    """
+    Crea las features adicionales necesarias para los modelos predictivos,
+    replicando la lógica de los cuadernos de Jupyter.
+    """
+    # Copiamos para evitar SettingWithCopyWarning
+    df = df.copy()
+
+    # La diferencia se calcula desde la perspectiva del equipo que lanza.
+    # Usamos np.where: si local es True, la diferencia es local - visitante. Si no, es visitante - local.
+    df['diferencia'] = np.where(
+        df['local'] == True,
+        df['score_local'] - df['score_visitor'],
+        df['score_visitor'] - df['score_local']
+    )
+    
+    # 1. es_ultimo_minuto
+    df['es_ultimo_minuto'] = ((df['period'] == 4) & (df['minute'] == 0)).astype(int)
+
+    # 2. es_posesion_final
+    df['es_posesion_final'] = (df['period_seconds_remaining'] <= 24).astype(int)
+
+    # 3. es_partido_ajustado
+    df['diferencia_puntos'] = abs(df['score_local'] - df['score_visitor'])
+    df['es_partido_ajustado'] = (df['diferencia_puntos'] <= 5).astype(int)
+    
+    # 4. Convertir 'local' a entero (0 o 1)
+    df['local'] = df['local'].astype(int)
+
+    # 5. distancia_tiro y angulo_tiro
+    df['distancia_tiro'] = np.sqrt(df['posX']**2 + df['posY']**2) / 1000
+    df['angulo_tiro'] = np.arctan2(df['posY'], df['posX'])
+
+    return df
 
 import numpy as np
 from pandas import json_normalize

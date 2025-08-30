@@ -13,16 +13,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from modules import auth, utils
 
 # --- FUNCIÓN AÑADIDA PARA EL MAPA DE TIRO ---
-def crear_mapa_de_tiro_final(ax, df_tiros, team_name):
+def crear_mapa_de_tiro_final(ax, df_tiros, team_name, xpoints_total=None):
     """
-    Función final que transforma las coordenadas y dibuja el mapa de tiro
-    utilizando la configuración de pista validada.
+    Función final que transforma las coordenadas, dibuja el mapa de tiro
+    y muestra los puntos esperados (xPoints).
     """
     if df_tiros.empty:
         court = Court(court_type="fiba", origin="bottom-left", units="m")
         court.draw(ax=ax)
         ax.axis('off')
-        ax.text(7.62, 14, "No hay datos de tiros para esta selección",
+        ax.text(7.5, 14, "No hay datos de tiros para esta selección",
                 ha='center', va='center', fontsize=12)
         return ax
 
@@ -42,6 +42,13 @@ def crear_mapa_de_tiro_final(ax, df_tiros, team_name):
     ax.scatter(made_shots['x_real'], made_shots['y_real'], c="green", s=30, label='Anotado', alpha=0.7)
     ax.scatter(missed_shots['x_real'], missed_shots['y_real'], c="red", s=30, label='Fallado', alpha=0.7)
 
+    # --- NOVEDAD: AÑADIMOS EL TEXTO DE XPOINTS AL GRÁFICO ---
+    # Este bloque comprueba si se ha pasado un valor de xPoints y lo dibuja.
+    if xpoints_total is not None:
+        xpoints_text = f"xPoints: {xpoints_total:.2f}".replace('.', ',')
+        ax.text(20.8, 14.5, xpoints_text, ha='right', va='top', fontsize=12, fontweight='bold')
+
+    ax.axis('off')
     return ax
 
 
@@ -62,6 +69,8 @@ def main():
         st.warning("No se han podido cargar los datos de Play-by-Play. El mapa de tiro no estará disponible.")
         df_pbp = pd.DataFrame()
 
+    models = utils.load_models()
+    
     utils.display_sidebar_filters(df)
 
     try:
@@ -255,33 +264,35 @@ def main():
                 st.warning(f"No hay suficientes datos para mostrar la tendencia de {equipo_grafico} con los filtros actuales (se necesita más de un partido).")
 
     with tab_shot_chart:
-        st.subheader(f"Mapa de Tiro para: {st.session_state.equipo_seleccionado}")
+        st.subheader(f"Mapa de Tiro y Puntos Esperados (xPoints) para: {st.session_state.equipo_seleccionado}")
 
-        if df_pbp.empty:
-            st.error("Los datos de Play-by-Play no están cargados. No se puede generar el mapa de tiro.")
+        if df_pbp.empty or models is None:
+            if df_pbp.empty:
+                st.error("Los datos de Play-by-Play no están cargados. No se puede generar el mapa de tiro.")
+            if models is None:
+                st.error("No se han podido cargar los modelos predictivos.")
         else:
-            # 1. Filtramos los datos de PBP para los partidos y equipo seleccionados en la sidebar
+            # 1. Filtramos los datos de PBP según las selecciones de la barra lateral
             ids_partidos_filtrados = df_filtrado_general['id_partido'].unique()
             df_equipo_pbp = df_pbp[
                 (df_pbp['id_partido'].isin(ids_partidos_filtrados)) &
                 (df_pbp['equipo'] == st.session_state.equipo_seleccionado)
             ]
             
-            # 2. Extraemos todos los lanzamientos ANTES de mostrar los filtros específicos
+            # 2. Extraemos todos los lanzamientos posibles
             df_tiros_base = df_equipo_pbp[((df_equipo_pbp['T2I'] == 1) | (df_equipo_pbp['T3I'] == 1))].copy().dropna(subset=['posX', 'posY'])
 
             st.divider()
 
-            # Comprobamos si hay tiros ANTES de crear los selectores
+            # 3. Comprobamos si hay tiros ANTES de crear los filtros
             if df_tiros_base.empty:
                 st.warning("No se encontraron lanzamientos para los filtros seleccionados en la barra lateral.")
                 fig, ax = plt.subplots(figsize=(10, 10))
+                # La llamada a la función debe incluir el nombre del equipo
                 crear_mapa_de_tiro_final(ax, df_tiros_base, st.session_state.equipo_seleccionado)
             
             else:
                 # --- FILTROS ESPECÍFICOS PARA EL MAPA DE TIRO ---
-                
-                # Slider para el reloj de posesión
                 min_reloj = int(df_tiros_base['tiempo_reloj_posesion'].min())
                 max_reloj = int(df_tiros_base['tiempo_reloj_posesion'].max())
                 tiempo_seleccionado = st.slider(
@@ -291,29 +302,54 @@ def main():
                     value=(min_reloj, max_reloj)
                 )
 
-                # --- NOVEDAD: Multiselect para el tipo de reseteo del reloj ---
-                # Obtenemos los valores únicos de la columna y los ordenamos
                 opciones_reseteo = sorted(df_tiros_base['tipo_reseteo_reloj'].unique())
-                
                 reseteos_seleccionados = st.multiselect(
                     "Filtrar por tipo de reseteo del reloj de posesión (segundos):",
                     options=opciones_reseteo,
-                    default=opciones_reseteo  # Por defecto, todos están seleccionados
+                    default=opciones_reseteo
                 )
                 
-                # 3. Aplicamos AMBOS filtros a nuestros datos de tiros
-                df_tiros_finales = df_tiros_base[
+                # 4. Aplicamos los filtros
+                df_tiros_filtrados = df_tiros_base[
                     (df_tiros_base['tiempo_reloj_posesion'].between(tiempo_seleccionado[0], tiempo_seleccionado[1])) &
                     (df_tiros_base['tipo_reseteo_reloj'].isin(reseteos_seleccionados))
                 ]
                 
+                # --- LÓGICA DE PREDICCIÓN ---
+                xpoints_total = 0
+                if not df_tiros_filtrados.empty:
+                    # 1. Crear TODAS las features adicionales necesarias
+                    df_tiros_con_features = utils.feature_engineering_for_prediction(df_tiros_filtrados)
+
+                    # 2. Separar tiros de 2 y de 3
+                    shots_2pt = df_tiros_con_features[df_tiros_con_features['T2I'] == 1]
+                    shots_3pt = df_tiros_con_features[df_tiros_con_features['T3I'] == 1]
+            
+                    # --- Lista de features COMPLETA que el modelo espera ---
+                    features = [
+                        'posX', 'posY', 'tiempo_reloj_posesion', 'local', 'period', 
+                        'period_seconds_remaining', 'es_ultimo_minuto', 'es_posesion_final',
+                        'es_partido_ajustado', 'diferencia', 'distancia_tiro', 'angulo_tiro'
+                    ]
+            
+                    # 3. Predecir y calcular xPoints
+                    if not shots_2pt.empty:
+                        X_2pt = shots_2pt[features]
+                        probs_2pt = models['model_2pt'].predict_proba(X_2pt)[:, 1]
+                        xpoints_total += (probs_2pt * 2).sum()
+
+                    if not shots_3pt.empty:
+                        X_3pt = shots_3pt[features]
+                        probs_3pt = models['model_3pt'].predict_proba(X_3pt)[:, 1]
+                        xpoints_total += (probs_3pt * 3).sum()
+
                 st.divider()
 
-                # 4. Creamos y mostramos la figura con los datos ya filtrados
+                # 4. Creamos y mostramos la figura
                 fig, ax = plt.subplots(figsize=(10, 10))
-                crear_mapa_de_tiro_final(ax, df_tiros_finales, st.session_state.equipo_seleccionado)
-
-            st.pyplot(fig)
+                # La llamada a la función debe incluir el nombre del equipo y los xPoints
+                crear_mapa_de_tiro_final(ax, df_tiros_filtrados, st.session_state.equipo_seleccionado, xpoints_total=xpoints_total)
+                st.pyplot(fig)
 
 if __name__ == "__main__":
     main()
