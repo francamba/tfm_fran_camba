@@ -1,19 +1,53 @@
-# En pages/1_Coletivo_Ofensivo.py
-
 import streamlit as st
 import pandas as pd
 import altair as alt
 import numpy as np
 import sys
 import os
+# --- IMPORTS AÑADIDOS PARA EL MAPA DE TIRO ---
+import matplotlib.pyplot as plt
+from mplbasketball.court import Court
 
 # Añade el directorio raíz del proyecto al 'path' de Python
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from modules import auth, utils
 
+# --- FUNCIÓN AÑADIDA PARA EL MAPA DE TIRO ---
+def crear_mapa_de_tiro_final(ax, df_tiros, team_name):
+    """
+    Función final que transforma las coordenadas y dibuja el mapa de tiro
+    utilizando la configuración de pista validada.
+    """
+    if df_tiros.empty:
+        court = Court(court_type="fiba", origin="bottom-left", units="m")
+        court.draw(ax=ax)
+        ax.axis('off')
+        ax.text(7.62, 14, "No hay datos de tiros para esta selección",
+                ha='center', va='center', fontsize=12)
+        return ax
+
+    df_tiros['made'] = (df_tiros['T2C'] == 1) | (df_tiros['T3C'] == 1)
+
+    HOOP_X = 1.6
+    HOOP_Y = 7.5
+    df_tiros['x_real'] = HOOP_X + (df_tiros['posX'] / 1000)
+    df_tiros['y_real'] = HOOP_Y + (df_tiros['posY'] / 1000)
+
+    court = Court(court_type="fiba", origin="bottom-left", units="m")
+    court.draw(ax=ax)
+    
+    made_shots = df_tiros[df_tiros['made'] == True]
+    missed_shots = df_tiros[df_tiros['made'] == False]
+    
+    ax.scatter(made_shots['x_real'], made_shots['y_real'], c="green", s=30, label='Anotado', alpha=0.7)
+    ax.scatter(missed_shots['x_real'], missed_shots['y_real'], c="red", s=30, label='Fallado', alpha=0.7)
+
+    return ax
+
+
 def main():
     auth.protect_page()
-    st.set_page_config(page_title="Análisis Ofensivo", layout="wide")
+    # st.set_page_config ya está en main.py, no es necesario aquí.
     utils.create_header()
     st.title("Análisis Coletivo Ofensivo ⚔️")
 
@@ -21,6 +55,12 @@ def main():
     if df.empty:
         st.warning("No se han podido cargar los datos.")
         st.stop()
+
+    # --- CARGA DE DATOS PBP PARA LA NUEVA PESTAÑA ---
+    df_pbp = utils.load_pbp_data()
+    if df_pbp is None or df_pbp.empty:
+        st.warning("No se han podido cargar los datos de Play-by-Play. El mapa de tiro no estará disponible.")
+        df_pbp = pd.DataFrame()
 
     utils.display_sidebar_filters(df)
 
@@ -30,11 +70,11 @@ def main():
             (df['rival'].isin(st.session_state.rival_seleccionado)) &
             (df['matchweek_number'] >= st.session_state.jornada_seleccionada[0]) &
             (df['matchweek_number'] <= st.session_state.jornada_seleccionada[1]) &
-            df['PPT2'].between(st.session_state.ppt2_range[0], st.session_state.ppt2_range[1]) &
-            df['PPT3'].between(st.session_state.ppt3_range[0], st.session_state.ppt3_range[1]) &
-            df['%RebOf'].between(st.session_state.rebof_range[0], st.session_state.rebof_range[1]) &
-            df['%RebDef'].between(st.session_state.rebdef_range[0], st.session_state.rebdef_range[1]) &
-            df['%TO'].between(st.session_state.to_range[0], st.session_state.to_range[1])
+            df['PPT2'].between(*st.session_state.get('ppt2_range', (df['PPT2'].min(), df['PPT2'].max()))) &
+            df['PPT3'].between(*st.session_state.get('ppt3_range', (df['PPT3'].min(), df['PPT3'].max()))) &
+            df['%RebOf'].between(*st.session_state.get('rebof_range', (df['%RebOf'].min(), df['%RebOf'].max()))) &
+            df['%RebDef'].between(*st.session_state.get('rebdef_range', (df['%RebDef'].min(), df['%RebDef'].max()))) &
+            df['%TO'].between(*st.session_state.get('to_range', (df['%TO'].min(), df['%TO'].max())))
         ]
         if st.session_state.pista_seleccionada != "Todos":
             df_filtrado_general = df_filtrado_general[df_filtrado_general['pista'] == st.session_state.pista_seleccionada]
@@ -45,7 +85,8 @@ def main():
         st.info("Ajusta los filtros en la barra lateral para comenzar el análisis.")
         st.stop()
 
-    tab_boxscore, tab_otra = st.tabs(["📊 Análisis General", "📈 Próxima Pestaña"])
+    # --- PESTAÑAS ACTUALIZADAS ---
+    tab_boxscore, tab_shot_chart = st.tabs(["📊 Análisis General", "🗺️ Mapa de Tiro"])
 
     with tab_boxscore:
         st.subheader(f"Rendimiento Agregado por Equipo")
@@ -213,8 +254,66 @@ def main():
             else:
                 st.warning(f"No hay suficientes datos para mostrar la tendencia de {equipo_grafico} con los filtros actuales (se necesita más de un partido).")
 
-    with tab_otra:
-        st.header("Próximamente: Otra Pestaña de Análisis")
+    with tab_shot_chart:
+        st.subheader(f"Mapa de Tiro para: {st.session_state.equipo_seleccionado}")
+
+        if df_pbp.empty:
+            st.error("Los datos de Play-by-Play no están cargados. No se puede generar el mapa de tiro.")
+        else:
+            # 1. Filtramos los datos de PBP para los partidos y equipo seleccionados en la sidebar
+            ids_partidos_filtrados = df_filtrado_general['id_partido'].unique()
+            df_equipo_pbp = df_pbp[
+                (df_pbp['id_partido'].isin(ids_partidos_filtrados)) &
+                (df_pbp['equipo'] == st.session_state.equipo_seleccionado)
+            ]
+            
+            # 2. Extraemos todos los lanzamientos ANTES de mostrar los filtros específicos
+            df_tiros_base = df_equipo_pbp[((df_equipo_pbp['T2I'] == 1) | (df_equipo_pbp['T3I'] == 1))].copy().dropna(subset=['posX', 'posY'])
+
+            st.divider()
+
+            # Comprobamos si hay tiros ANTES de crear los selectores
+            if df_tiros_base.empty:
+                st.warning("No se encontraron lanzamientos para los filtros seleccionados en la barra lateral.")
+                fig, ax = plt.subplots(figsize=(10, 10))
+                crear_mapa_de_tiro_final(ax, df_tiros_base, st.session_state.equipo_seleccionado)
+            
+            else:
+                # --- FILTROS ESPECÍFICOS PARA EL MAPA DE TIRO ---
+                
+                # Slider para el reloj de posesión
+                min_reloj = int(df_tiros_base['tiempo_reloj_posesion'].min())
+                max_reloj = int(df_tiros_base['tiempo_reloj_posesion'].max())
+                tiempo_seleccionado = st.slider(
+                    "Filtrar por segundos restantes en el reloj de posesión:",
+                    min_value=min_reloj,
+                    max_value=max_reloj,
+                    value=(min_reloj, max_reloj)
+                )
+
+                # --- NOVEDAD: Multiselect para el tipo de reseteo del reloj ---
+                # Obtenemos los valores únicos de la columna y los ordenamos
+                opciones_reseteo = sorted(df_tiros_base['tipo_reseteo_reloj'].unique())
+                
+                reseteos_seleccionados = st.multiselect(
+                    "Filtrar por tipo de reseteo del reloj de posesión (segundos):",
+                    options=opciones_reseteo,
+                    default=opciones_reseteo  # Por defecto, todos están seleccionados
+                )
+                
+                # 3. Aplicamos AMBOS filtros a nuestros datos de tiros
+                df_tiros_finales = df_tiros_base[
+                    (df_tiros_base['tiempo_reloj_posesion'].between(tiempo_seleccionado[0], tiempo_seleccionado[1])) &
+                    (df_tiros_base['tipo_reseteo_reloj'].isin(reseteos_seleccionados))
+                ]
+                
+                st.divider()
+
+                # 4. Creamos y mostramos la figura con los datos ya filtrados
+                fig, ax = plt.subplots(figsize=(10, 10))
+                crear_mapa_de_tiro_final(ax, df_tiros_finales, st.session_state.equipo_seleccionado)
+
+            st.pyplot(fig)
 
 if __name__ == "__main__":
     main()
