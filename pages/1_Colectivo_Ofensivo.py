@@ -95,7 +95,11 @@ def main():
         st.stop()
 
     # --- PESTAÑAS ACTUALIZADAS ---
-    tab_boxscore, tab_shot_chart = st.tabs(["📊 Análisis General", "🗺️ Mapa de Tiro"])
+    tab_boxscore, tab_rebote, tab_shot_chart = st.tabs([
+        "📊 Análisis General", 
+        "🏀 Rebote Ofensivo", 
+        "🗺️ Mapa de Tiro"
+    ])
 
     with tab_boxscore:
         st.subheader(f"Rendimiento Agregado por Equipo")
@@ -263,6 +267,94 @@ def main():
             else:
                 st.warning(f"No hay suficientes datos para mostrar la tendencia de {equipo_grafico} con los filtros actuales (se necesita más de un partido).")
 
+    with tab_rebote:
+        st.subheader(f"Rendimiento en Rebote Ofensivo")
+        st.markdown(f"Mostrando datos de **{len(df_filtrado_general['id_partido'].unique())}** partidos que cumplen con los filtros.")
+
+        if df_filtrado_general.empty:
+            st.warning("No hay datos disponibles para la selección actual de filtros.")
+        else:
+            # --- 1. TABLA DE DATOS DE REBOTE ---
+            metricas_rebote = ['%RebOf', 'ptos_RebOf']
+            df_agregado_rebote = df_filtrado_general.groupby('equipo')[metricas_rebote].mean()
+            df_agregado_rebote = df_agregado_rebote.sort_values(by='%RebOf', ascending=False)
+            df_agregado_rebote.insert(0, 'Rank', range(1, 1 + len(df_agregado_rebote)))
+            
+            def highlight_team(row):
+                if row.name == st.session_state.equipo_seleccionado:
+                    return ['background-color: #FFF3CD'] * len(row)
+                return [''] * len(row)
+
+            format_dict_rebote = {'%RebOf': '{:.2%}', 'ptos_RebOf': '{:.2f}'}
+            
+            styled_df_rebote = (df_agregado_rebote.style
+                                 .apply(highlight_team, axis=1)
+                                 .background_gradient(cmap='RdYlGn', subset=metricas_rebote)
+                                 .format(format_dict_rebote))
+            
+            # Altura de la tabla aumentada
+            st.dataframe(styled_df_rebote, use_container_width=True, height=700)
+
+            # --- 2. GRÁFICO DE DISPERSIÓN DE REBOTE ---
+            st.subheader("Eficiencia y Cantidad en Rebote Ofensivo")
+            df_grafico_rebote = df_agregado_rebote.reset_index()
+            df_grafico_rebote['logo_url'] = df_grafico_rebote['equipo'].apply(
+                lambda team_name: utils.image_to_data_url(f"assets/logos/{team_name}.png")
+            )
+            df_grafico_rebote = df_grafico_rebote.dropna(subset=['logo_url'])
+
+            if not df_grafico_rebote.empty:
+                avg_ptos = df_grafico_rebote['ptos_RebOf'].mean()
+                avg_pct = df_grafico_rebote['%RebOf'].mean()
+                # Lógica de ajuste de ejes añadida
+                x_min, x_max = df_grafico_rebote['ptos_RebOf'].min(), df_grafico_rebote['ptos_RebOf'].max()
+                y_min, y_max = df_grafico_rebote['%RebOf'].min(), df_grafico_rebote['%RebOf'].max()
+                x_margin = (x_max - x_min) * 0.05
+                y_margin = (y_max - y_min) * 0.05
+                x_domain = [x_min - x_margin, x_max + x_margin]
+                y_domain = [y_min - y_margin, y_max + y_margin]
+                
+                scatter_plot = alt.Chart(df_grafico_rebote).mark_image(width=40, height=40).encode(
+                    x=alt.X('ptos_RebOf:Q', title='Puntos tras Rebote Ofensivo', scale=alt.Scale(domain=x_domain, zero=False)),
+                    y=alt.Y('%RebOf:Q', title='% de Rebote Ofensivo Capturado', axis=alt.Axis(format='.0%'), scale=alt.Scale(domain=y_domain, zero=False)),
+                    url='logo_url:N',
+                    tooltip=['equipo', alt.Tooltip('ptos_RebOf', format='.2f'), alt.Tooltip('%RebOf', format='.2%')]
+                )
+                
+                highlight_point = scatter_plot.transform_filter(
+                    alt.datum.equipo == st.session_state.equipo_seleccionado
+                ).mark_circle(size=1200, opacity=0.4, color='#ff7f0e')
+
+                rule_h = alt.Chart(pd.DataFrame({'y': [avg_pct]})).mark_rule(strokeDash=[5,5], color='gray').encode(y='y:Q')
+                rule_v = alt.Chart(pd.DataFrame({'x': [avg_ptos]})).mark_rule(strokeDash=[5,5], color='gray').encode(x='x:Q')
+
+                final_chart = (rule_h + rule_v + highlight_point + scatter_plot).interactive().properties(height=500)
+                st.altair_chart(final_chart, use_container_width=True, theme="streamlit")
+            
+            # --- 3. GRÁFICO DE EVOLUCIÓN (AÑADIDO) ---
+            st.divider()
+            equipo_grafico = st.session_state.equipo_seleccionado
+            st.subheader(f"Evolución en Rebote Ofensivo por Jornada para: {equipo_grafico}")
+            
+            df_tendencia_reb = df_filtrado_general[df_filtrado_general['equipo'] == equipo_grafico]
+            df_tendencia_reb = df_tendencia_reb.groupby('matchweek_number', as_index=False)[metricas_rebote].mean()
+
+            if not df_tendencia_reb.empty and len(df_tendencia_reb) > 1:
+                base = alt.Chart(df_tendencia_reb).encode(x=alt.X('matchweek_number:O', title='Jornada'))
+                
+                line1 = base.mark_line(color='#1f77b4', point=True).encode(
+                    y=alt.Y('%RebOf:Q', title='% Rebote Ofensivo', axis=alt.Axis(format='.0%', titleColor='#1f77b4'))
+                )
+                line2 = base.mark_line(color='#ff7f0e', point=True).encode(
+                    y=alt.Y('ptos_RebOf:Q', title='Puntos tras Rebote Ofensivo', axis=alt.Axis(titleColor='#ff7f0e'))
+                )
+                
+                combined_chart = alt.layer(line1, line2).resolve_scale(y='independent')
+                st.altair_chart(combined_chart, use_container_width=True)
+            else:
+                st.warning(f"No hay suficientes datos para mostrar la tendencia de {equipo_grafico} con los filtros actuales.")
+    
+    
     with tab_shot_chart:
         st.subheader(f"Mapa de Tiro y Puntos Esperados (xPoints) para: {st.session_state.equipo_seleccionado}")
 
