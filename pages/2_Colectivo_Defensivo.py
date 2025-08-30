@@ -1,120 +1,140 @@
 import streamlit as st
 import pandas as pd
-from modules import auth
+import altair as alt
+import numpy as np
 import sys
 import os
 
 # Añade el directorio raíz del proyecto al 'path' de Python
-# Esto permite que el script encuentre el archivo utils.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-# -----------------------------------------------------------
-
-import utils
+from modules import auth, utils
 
 def main():
     auth.protect_page()
-    # --- CONFIGURACIÓN DE PÁGINA Y CABECERA ---
-    st.set_page_config(page_title="Análisis Defensivo", layout="wide")
     utils.create_header()
-    st.title("Análisis Colectivo Defensivo 🛡️")
+    st.title("Análisis Coletivo Defensivo 🛡️")
 
-    # --- CARGA Y PREPARACIÓN DE DATOS ---
     df = utils.load_and_prepare_data()
-
     if df.empty:
-        st.warning("No se han podido cargar los datos. Por favor, actualízalos en la página correspondiente.")
+        st.warning("No se han podido cargar los datos.")
         st.stop()
 
-    # --- PANELES DE FILTROS EN LA BARRA LATERAL ---
-    equipo_seleccionado, rival_seleccionado, pista_seleccionada, jornada_seleccionada = utils.display_sidebar_filters(df)
+    utils.display_sidebar_filters(df)
 
-    # --- APLICACIÓN DE FILTROS ---
-    df_filtrado = df[
-        (df['equipo'] == equipo_seleccionado) &
-        (df['rival'].isin(rival_seleccionado)) &
-        (df['matchweek_number'] >= jornada_seleccionada[0]) &
-        (df['matchweek_number'] <= jornada_seleccionada[1])
-    ]
-    if pista_seleccionada != "Todos":
-        df_filtrado = df_filtrado[df_filtrado['pista'] == pista_seleccionada]
-
-    # --- CÁLCULO DE MÉTRICAS DEFENSIVAS (USANDO COLUMNAS DEL RIVAL) ---
-    if not df_filtrado.empty:
-        # Convertimos las columnas del rival a numérico
-        rival_cols = ['puntos_riv', 'T2I_riv', 'T3I_riv', 'TO_riv', 'TLI_riv', 'RebOf_riv', 'T2C_riv', 'T3C_riv']
-        for col in rival_cols:
-            df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors='coerce')
-
-        # Calculamos las posesiones del rival
-        df_filtrado['posesiones_riv'] = (
-            df_filtrado['T2I_riv'] + df_filtrado['T3I_riv'] + df_filtrado['TO_riv'] + 
-            (0.44 * df_filtrado['TLI_riv']) - df_filtrado['RebOf_riv']
-        )
-
-        total_puntos_riv = df_filtrado['puntos_riv'].sum()
-        total_posesiones_riv = df_filtrado['posesiones_riv'].sum()
-        total_tiempo = df_filtrado['tiempo_partido'].sum()
-        
-        # Métricas principales
-        ritmo_juego_riv = (total_posesiones_riv / total_tiempo) * 40 if total_tiempo > 0 else 0
-        rendimiento_defensivo = (total_puntos_riv / total_posesiones_riv) * 100 if total_posesiones_riv > 0 else 0
-        
-        # Rendimiento por tipo de tiro del rival
-        total_t2c_riv = df_filtrado['T2C_riv'].sum()
-        total_t2i_riv = df_filtrado['T2I_riv'].sum()
-        total_t3c_riv = df_filtrado['T3C_riv'].sum()
-        total_t3i_riv = df_filtrado['T3I_riv'].sum()
-
-        ppt2_riv = (2 * total_t2c_riv) / total_t2i_riv if total_t2i_riv > 0 else 0
-        ppt3_riv = (3 * total_t3c_riv) / total_t3i_riv if total_t3i_riv > 0 else 0
-        ppt_riv = ((2 * total_t2c_riv) + (3 * total_t3c_riv)) / (total_t2i_riv + total_t3i_riv) if (total_t2i_riv + total_t3i_riv) > 0 else 0
-
-        # --- VISUALIZACIÓN DE MÉTRICAS ---
-        st.subheader(f"Métricas Defensivas para: {equipo_seleccionado}")
-        st.markdown(f"Mostrando **{len(df_filtrado)}** partidos jugados.")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="Ritmo de Juego Permitido", value=f"{ritmo_juego_riv:.2f}", help="Posesiones del rival por 40 minutos")
-        with col2:
-            st.metric(label="Rendimiento Defensivo", value=f"{rendimiento_defensivo:.2f}", help="Puntos permitidos por cada 100 posesiones")
-        with col3:
-            st.metric(label="PPT Permitido al Rival", value=f"{ppt_riv:.3f}", help="Puntos generados por el rival por cada tiro de campo intentado")
-        
-        st.divider()
-        
-        col4, col5 = st.columns(2)
-        with col4:
-            st.metric(label="PPT Permitido - Tiros de 2", value=f"{ppt2_riv:.3f}", help="(2 * T2C_riv) / T2I_riv")
-        with col5:
-            st.metric(label="PPT Permitido - Tiros de 3", value=f"{ppt3_riv:.3f}", help="(3 * T3C_riv) / T3I_riv")
-
-        with st.expander("Ver datos de los partidos filtrados"):
-            st.dataframe(df_filtrado)
-
-        # --- EXPORTACIÓN ---
-        st.subheader("Exportar Reporte")
-        
-        # Preparamos los datos para el PDF
-        metricas_pdf = {
-            "Ritmo de Juego": f"{ritmo_juego:.2f}",
-            "Rendimiento Ofensivo": f"{rendimiento_ofensivo:.2f}",
-            "Puntos Por Tiro (PPT)": f"{ppt:.3f}",
-            "PPT - Tiros de 2": f"{ppt2:.3f}",
-            "PPT - Tiros de 3": f"{ppt3:.3f}"
-        }
-        
-        pdf_data = utils.create_pdf_report(df_filtrado, metricas_pdf, equipo_seleccionado, "Reporte Colectivo Ofensivo")
-        
-        st.download_button(
-            label="📄 Descargar como PDF",
-            data=pdf_data,
-            file_name=f"reporte_ofensivo_{equipo_seleccionado}.pdf",
-            mime="application/pdf"
-        )
+    try:
+        # El filtrado general se aplica igual que en la otra página
+        df_filtrado_general = df[
+            (df['rival'].isin(st.session_state.rival_seleccionado)) &
+            (df['matchweek_number'] >= st.session_state.jornada_seleccionada[0]) &
+            (df['matchweek_number'] <= st.session_state.jornada_seleccionada[1]) &
+            df['PPT2'].between(*st.session_state.get('ppt2_range', (df['PPT2'].min(), df['PPT2'].max()))) &
+            df['PPT3'].between(*st.session_state.get('ppt3_range', (df['PPT3'].min(), df['PPT3'].max()))) &
+            df['%RebOf'].between(*st.session_state.get('rebof_range', (df['%RebOf'].min(), df['%RebOf'].max()))) &
+            df['%RebDef'].between(*st.session_state.get('rebdef_range', (df['%RebDef'].min(), df['%RebDef'].max()))) &
+            df['%TO'].between(*st.session_state.get('to_range', (df['%TO'].min(), df['%TO'].max())))
+        ]
+        if st.session_state.pista_seleccionada != "Todos":
+            df_filtrado_general = df_filtrado_general[df_filtrado_general['pista'] == st.session_state.pista_seleccionada]
+        if st.session_state.victoria_seleccionada != "Todos":
+            df_filtrado_general = df_filtrado_general[df_filtrado_general['victoria'] == st.session_state.victoria_seleccionada]
             
-    else:
-        st.warning("No hay datos disponibles para la selección actual de filtros.")
+    except (KeyError, AttributeError):
+        st.info("Ajusta los filtros en la barra lateral para comenzar el análisis.")
+        st.stop()
 
+    tab_general_def, tab_rebote_def = st.tabs(["📊 Análisis General Defensivo", "🏀 Rebote Defensivo"])
+
+    with tab_general_def:
+        st.subheader(f"Rendimiento Defensivo (Estadísticas Permitidas al Rival)")
+        st.markdown(f"Mostrando datos de **{len(df_filtrado_general['id_partido'].unique())}** partidos que cumplen con los filtros.")
+
+        if df_filtrado_general.empty:
+            st.warning("No hay datos disponibles para la selección actual de filtros.")
+        else:
+            # --- 1. TABLA DE DATOS DEFENSIVOS ---
+            # Seleccionamos las métricas del rival, que acaban en '_riv'
+            metricas_defensivas = [
+                'POSS/40 Min_riv', 'Ptos/POSS_riv', 'PPT2_riv', 'PPT3_riv', '%RebOf_riv', '%TO_riv'
+            ]
+            df_agregado_def = df_filtrado_general.groupby('equipo')[metricas_defensivas].mean()
+            
+            # Renombramos las columnas para que sean más legibles en la tabla
+            df_agregado_def.columns = [
+                'Ritmo (Rival)', 'Ptos/POSS (Rival)', 'PPT2 (Rival)', 'PPT3 (Rival)', '%RebOf (Rival)', '%TO (Rival)'
+            ]
+            
+            # Ordenamos por Ptos/POSS (Rival) ascendente (mejor defensa la que menos puntos permite)
+            df_agregado_def = df_agregado_def.sort_values(by='Ptos/POSS (Rival)', ascending=True)
+            df_agregado_def.insert(0, 'Rank', range(1, 1 + len(df_agregado_def)))
+            
+            def highlight_team(row):
+                if row.name == st.session_state.equipo_seleccionado:
+                    return ['background-color: #FFF3CD'] * len(row)
+                return [''] * len(row)
+
+            # En defensa, un valor más bajo es mejor para todas las métricas.
+            metrics_low_is_better = list(df_agregado_def.columns.drop("Rank"))
+            
+            styled_df = (df_agregado_def.style
+                         .apply(highlight_team, axis=1)
+                         .background_gradient(cmap='RdYlGn_r', subset=metrics_low_is_better) # Usamos el mapa de color inverso
+                         .format("{:.2f}"))
+            
+            st.dataframe(styled_df, use_container_width=True, height=700)
+
+            # --- 2. GRÁFICO DE DISPERSIÓN DEFENSIVO ---
+            st.subheader("Eficiencia vs Ritmo Defensivo (Permitido al Rival)")
+            df_grafico_def = df_agregado_def.reset_index()
+            df_grafico_def['logo_url'] = df_grafico_def['equipo'].apply(
+                lambda team_name: utils.image_to_data_url(f"assets/logos/{team_name}.png")
+            )
+            df_grafico_def = df_grafico_def.dropna(subset=['logo_url'])
+
+            if not df_grafico_def.empty:
+                avg_poss = df_grafico_def['Ritmo (Rival)'].mean()
+                avg_ptos = df_grafico_def['Ptos/POSS (Rival)'].mean()
+
+                x_min, x_max = df_grafico_def['Ritmo (Rival)'].min(), df_grafico_def['Ritmo (Rival)'].max()
+                y_min, y_max = df_grafico_def['Ptos/POSS (Rival)'].min(), df_grafico_def['Ptos/POSS (Rival)'].max()
+                x_margin = (x_max - x_min) * 0.05
+                y_margin = (y_max - y_min) * 0.05
+                x_domain = [x_min - x_margin, x_max + x_margin]
+                y_domain = [y_min - y_margin, y_max + y_margin]
+                
+                scatter_plot = alt.Chart(df_grafico_def).mark_image(width=40, height=40).encode(
+                    x=alt.X('Ritmo (Rival):Q', title='Ritmo Permitido (Posesiones del rival)', scale=alt.Scale(domain=x_domain)),
+                    y=alt.Y('Ptos/POSS (Rival):Q', title='Eficiencia Permitida (Puntos por posesión del rival)', scale=alt.Scale(domain=y_domain)),
+                    url='logo_url:N',
+                    tooltip=['equipo', alt.Tooltip('Ritmo (Rival)', format='.1f'), alt.Tooltip('Ptos/POSS (Rival)', format='.2f')]
+                )
+                
+                highlight_point = scatter_plot.transform_filter(alt.datum.equipo == st.session_state.equipo_seleccionado).mark_circle(size=1200, opacity=0.4, color='#ff7f0e')
+                rule_h = alt.Chart(pd.DataFrame({'y': [avg_ptos]})).mark_rule(strokeDash=[5,5], color='gray').encode(y='y:Q')
+                rule_v = alt.Chart(pd.DataFrame({'x': [avg_poss]})).mark_rule(strokeDash=[5,5], color='gray').encode(x='x:Q')
+
+                final_chart = (rule_h + rule_v + highlight_point + scatter_plot).interactive().properties(height=500)
+                st.altair_chart(final_chart, use_container_width=True, theme="streamlit")
+    
+    with tab_rebote_def:
+        st.subheader("Rendimiento en Rebote Defensivo")
+        st.markdown(f"Mostrando datos de **{len(df_filtrado_general['id_partido'].unique())}** partidos que cumplen con los filtros.")
+
+        if df_filtrado_general.empty:
+            st.warning("No hay datos disponibles para la selección actual de filtros.")
+        else:
+            # Usamos %RebDef (propio) y %RebOf_riv (permitido al rival)
+            metricas_reb_def = ['%RebDef', '%RebOf_riv']
+            df_agregado_reb_def = df_filtrado_general.groupby('equipo')[metricas_reb_def].mean()
+            df_agregado_reb_def = df_agregado_reb_def.sort_values(by='%RebDef', ascending=False)
+            df_agregado_reb_def.insert(0, 'Rank', range(1, 1 + len(df_agregado_reb_def)))
+            
+            styled_df_reb_def = (df_agregado_reb_def.style
+                                 .apply(highlight_team, axis=1)
+                                 .background_gradient(cmap='RdYlGn', subset=['%RebDef']) # %RebDef: Más es mejor
+                                 .background_gradient(cmap='RdYlGn_r', subset=['%RebOf_riv']) # %RebOf_riv: Menos es mejor
+                                 .format({'%RebDef': '{:.2%}', '%RebOf_riv': '{:.2%}'}))
+
+            st.dataframe(styled_df_reb_def, use_container_width=True, height=700)
+            
 if __name__ == "__main__":
     main()

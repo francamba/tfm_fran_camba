@@ -248,6 +248,17 @@ def load_and_prepare_data():
     denominador_to = df_merged['T2I'] + df_merged['T3I'] + df_merged['TO'] + (0.44 * df_merged['TLI'])
     df_merged['%TO'] = np.where(denominador_to > 0, df_merged['TO'] / denominador_to, 0)
     
+    # --- CÁLCULO DE MÉTRICAS DEL RIVAL (para la pestaña defensiva) ---
+    df_merged['posesiones_riv'] = df_merged['T2I_riv'] + df_merged['T3I_riv'] + df_merged['TO_riv'] + (0.44 * df_merged['TLI_riv']) - df_merged['RebOf_riv']
+    df_merged['POSS/40 Min_riv'] = np.where(df_merged['tiempo_partido'] > 0, (df_merged['posesiones_riv'] / df_merged['tiempo_partido']) * 40, 0)
+    df_merged['Ptos/POSS_riv'] = np.where(df_merged['posesiones_riv'] > 0, df_merged['puntos_riv'] / df_merged['posesiones_riv'], 0)
+    df_merged['PPT2_riv'] = np.where(df_merged['T2I_riv'] > 0, (2 * df_merged['T2C_riv']) / df_merged['T2I_riv'], 0)
+    df_merged['PPT3_riv'] = np.where(df_merged['T3I_riv'] > 0, (3 * df_merged['T3C_riv']) / df_merged['T3I_riv'], 0)
+    df_merged['%RebOf_riv'] = np.where((df_merged['RebOf_riv'] + df_merged['RebDef']) > 0, df_merged['RebOf_riv'] / (df_merged['RebOf_riv'] + df_merged['RebDef']), 0)
+    df_merged['%RebDef_riv'] = np.where((df_merged['RebDef_riv'] + df_merged['RebOf']) > 0, df_merged['RebDef_riv'] / (df_merged['RebDef_riv'] + df_merged['RebOf']), 0)
+    denominador_to_riv = df_merged['T2I_riv'] + df_merged['T3I_riv'] + df_merged['TO_riv'] + (0.44 * df_merged['TLI_riv'])
+    df_merged['%TO_riv'] = np.where(denominador_to_riv > 0, df_merged['TO_riv'] / denominador_to_riv, 0)
+
     return df_merged
 
 @st.cache_data
